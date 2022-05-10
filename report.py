@@ -158,6 +158,7 @@ def report2html(name, report):
     <table style="border: 1px solid black;border-collapse: collapse;">
         <tr class="center">
             <td style="padding-left: 3px; padding-right: 3px;border: 1px solid black;border-collapse: collapse;"><b>User</b></td>
+             <td style="padding-left: 3px; padding-right: 3px;border: 1px solid black;border-collapse: collapse;"><b>Tags</b></td>
             <td style="padding-left: 3px; padding-right: 3px;border: 1px solid black;border-collapse: collapse;"><b>Last active</b></td>
             <td style="padding-left: 3px; padding-right: 3px;border: 1px solid black;border-collapse: collapse;"><b>Created</b></td>
             <td style="padding-left: 3px; padding-right: 3px;border: 1px solid black;border-collapse: collapse;"><b>Access Key(s)</b></td>
@@ -170,6 +171,7 @@ def report2html(name, report):
         {%- for row in rows %}
         <tr style="background-color: {{ row.color }}">
             <td style="padding-left: 3px; padding-right: 3px;border: 1px solid black;border-collapse: collapse;white-space:nowrap">{{ row.user|e }}</td>
+            <td style="padding-left: 3px; padding-right: 3px;border: 1px solid black;border-collapse: collapse;">{{ row.tags }}</td>
             <td style="padding-left: 3px; padding-right: 3px;border: 1px solid black;border-collapse: collapse;white-space:nowrap; text-align: {{ row.active_align }};">{{ row.active }}</td>
             <td style="padding-left: 3px; padding-right: 3px;border: 1px solid black;border-collapse: collapse;white-space:nowrap; text-align: right;">{{ row.created }}</td>
             <td style="padding-left: 3px; padding-right: 3px;border: 1px solid black;border-collapse: collapse;text-align: center;">{{ row.access_key }}</td>
@@ -196,6 +198,7 @@ def report2html(name, report):
     for user in sorted(report, key=itemgetter('user')):
         r = {
             'user': user['user'],
+            'tags': user['tags'],
             'active': '',
             'active_align': 'right',
             'created': '',
@@ -392,6 +395,7 @@ class UserReport:
 
         err_vals = ['N/A', 'no_information', 'not_supported']
 
+        
         for key in datetime_keys:
             try:
                 user[key] = dateutil.parser.parse(user[key]).replace(tzinfo=None) if user[key] not in err_vals else None
@@ -410,9 +414,11 @@ class UserReport:
 
         user['groups'] = list()
         user['policies'] = list()
+        user['tags'] = list()
         try:
             user['groups'] = self.user_groups(user['user'])
             user['policies'] = self.user_policies(user['user'])
+            user['tags'] = self.user_tags(user['user'])
         except botocore.exceptions.ClientError as e:
             if '(NoSuchEntity)' in str(e):
                 user['user'] += ' [DELETED]'
@@ -467,6 +473,31 @@ class UserReport:
                 complete = True
 
             ui.extend(items['PolicyNames'])
+        return ui
+
+    def user_tags(self, user):
+        if user == '<root_account>':
+            return []
+        self.log.debug('Fetching tags for user {}'.format(user))
+        session = boto3.session.Session(aws_access_key_id=self._access_key_id,
+                                        aws_secret_access_key=self._secret_access_key)
+        iam = session.client('iam')
+        complete = False
+        marker = None
+        ui = []
+        while not complete:
+            if marker:
+                items = iam.list_user_tags(UserName=user, Marker=marker)
+            else:
+                items = iam.list_user_tags(UserName=user)
+            if items['IsTruncated']:
+                marker = items['Marker']
+            else:
+                complete = True
+
+            # print('tags', items)
+
+            ui.extend(items['Tags'])
         return ui
 
 
